@@ -1,16 +1,23 @@
+"""
+[Step 6] 텔레그램 발송
+TEST_MODE 와 완전히 분리 - 텔레그램 키만 있으면 항상 실제 발송
+"""
+import re
 import requests
-import os
 from config import TELEGRAM_TOKEN, TELEGRAM_CHATID
 
-TELEGRAM_ENABLED = bool(TELEGRAM_TOKEN and TELEGRAM_CHATID)
+# 빗썸 키와 무관하게 텔레그램 키만 있으면 실제 발송
+ENABLED = bool(TELEGRAM_TOKEN and TELEGRAM_CHATID)
+
+
+def _clean(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text)
 
 
 def send_message(text: str) -> bool:
-    if not TELEGRAM_ENABLED:
-        print(f"\n[텔레그램 키 없음] TOKEN={bool(TELEGRAM_TOKEN)} CHATID={bool(TELEGRAM_CHATID)}")
-        import re
-        print(re.sub(r"<[^>]+>", "", text))
-        return True
+    if not ENABLED:
+        print(f"\n[텔레그램 키 미등록]\n{_clean(text)}")
+        return False
     try:
         url  = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         resp = requests.post(url, data={
@@ -18,20 +25,19 @@ def send_message(text: str) -> bool:
             "text"      : text,
             "parse_mode": "HTML",
         }, timeout=15)
-        if resp.status_code == 200:
-            print("  ✅ 텔레그램 메시지 발송 성공")
-        else:
-            print(f"  ❌ 텔레그램 오류: {resp.status_code} {resp.text}")
-        return resp.status_code == 200
+        ok = resp.status_code == 200
+        if not ok:
+            print(f"  ⚠️ 텔레그램 응답: {resp.status_code} {resp.text[:100]}")
+        return ok
     except Exception as e:
-        print(f"  ❌ 텔레그램 예외: {e}")
+        print(f"  ❌ 메시지 발송 실패: {e}")
         return False
 
 
 def send_photo(image_path: str, caption: str = "") -> bool:
-    if not TELEGRAM_ENABLED:
-        print(f"  [이미지 키 없음] {image_path}")
-        return True
+    if not ENABLED:
+        print(f"  [텔레그램 키 미등록] {image_path}")
+        return False
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
         with open(image_path, "rb") as f:
@@ -40,27 +46,27 @@ def send_photo(image_path: str, caption: str = "") -> bool:
                 "caption"   : caption,
                 "parse_mode": "HTML",
             }, files={"photo": f}, timeout=30)
-        if resp.status_code == 200:
-            print(f"  ✅ 이미지 발송 성공: {image_path}")
-        else:
-            print(f"  ❌ 이미지 오류: {resp.status_code} {resp.text}")
-        return resp.status_code == 200
+        ok = resp.status_code == 200
+        if not ok:
+            print(f"  ⚠️ 이미지 응답: {resp.status_code} {resp.text[:100]}")
+        return ok
     except Exception as e:
-        print(f"  ❌ 이미지 예외: {e}")
+        print(f"  ❌ 이미지 발송 실패: {e}")
         return False
 
 
 def send_report_with_charts(report_text: str, chart_paths: list):
-    mode = "🌐 실제 발송" if TELEGRAM_ENABLED else "🧪 시뮬레이션"
-    print(f"  모드: {mode}")
-    print(f"  TOKEN 설정: {bool(TELEGRAM_TOKEN)}")
-    print(f"  CHATID 설정: {bool(TELEGRAM_CHATID)}")
+    mode = "🌐 실제 발송" if ENABLED else "⚠️ 키 미등록"
+    print(f"  텔레그램 모드: {mode}")
 
-    send_message(report_text)
+    ok = send_message(report_text)
+    print(f"  {'✅' if ok else '❌'} 리포트 발송")
+
     for path in chart_paths:
         ticker  = path.split("chart_")[-1].replace(".png", "").upper()
         caption = f"📊 <b>{ticker}</b> 일봉 차트"
-        send_photo(path, caption)
+        ok = send_photo(path, caption)
+        print(f"  {'✅' if ok else '❌'} {ticker} 차트 발송")
 
 
 def send_trade_result(result: dict):
