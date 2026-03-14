@@ -5,8 +5,7 @@ import json
 import os
 from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
-                    BUY_RATIO_TABLE, TEST_MODE)
-
+                    BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
 
 def load_state() -> dict:
     default = {
