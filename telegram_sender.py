@@ -1,10 +1,10 @@
 """
 [Step 6] 텔레그램 리포트 + 차트 이미지 발송
+빗썸 키 무관하게 텔레그램은 항상 실제 발송
 """
 import requests
 from config import TELEGRAM_TOKEN, TELEGRAM_CHATID
 
-# 텔레그램은 항상 실제 발송 (TEST_MODE 무관)
 TELEGRAM_ENABLED = bool(TELEGRAM_TOKEN and TELEGRAM_CHATID)
 
 
@@ -46,15 +46,12 @@ def send_photo(image_path: str, caption: str = "") -> bool:
 
 
 def send_report_with_charts(report_text: str, chart_paths: list):
-    """리포트 텍스트 발송 후 차트 이미지 순서대로 발송"""
-    mode = "🧪 시뮬레이션" if TEST_MODE else "🌐 실제 발송"
+    mode = "🌐 실제 발송" if TELEGRAM_ENABLED else "🧪 시뮬레이션"
     print(f"  모드: {mode}")
 
-    # 텍스트 리포트
     ok = send_message(report_text)
     print(f"  {'✅' if ok else '❌'} 리포트 텍스트 발송")
 
-    # 차트 이미지들
     for path in chart_paths:
         ticker  = path.split("chart_")[-1].replace(".png","").upper()
         caption = f"📊 <b>{ticker}</b> 일봉 차트"
@@ -63,7 +60,6 @@ def send_report_with_charts(report_text: str, chart_paths: list):
 
 
 def send_trade_result(result: dict):
-    """매매 결과 알림"""
     action = result.get("action")
     if action == "buy":
         msg = (
@@ -94,10 +90,3 @@ def send_trade_result(result: dict):
     else:
         msg = f"ℹ️ 매매 없음: {result}"
     send_message(msg)
-
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("Step 6: 텔레그램 발송 테스트")
-    print("=" * 50)
-    send_message("🤖 <b>텔레그램 발송 테스트</b>\n연결 정상!")
