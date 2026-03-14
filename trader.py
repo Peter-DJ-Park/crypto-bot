@@ -1,7 +1,5 @@
 """
 [Step 8] 무한매수법 자동거래 실행
-- state.json 에 매매 상태 영속 저장
-- 익절 / 쿼터손절 / 분할매수 자동 처리
 """
 import json
 import os
@@ -10,7 +8,6 @@ from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     BUY_RATIO_TABLE, TEST_MODE)
 
 
-# ── 상태 관리 ────────────────────────────────────────────────
 def load_state() -> dict:
     default = {
         "ticker"    : "",
@@ -25,7 +22,6 @@ def load_state() -> dict:
             saved = json.load(f)
             default.update(saved)
     return default
-    }
 
 
 def save_state(state: dict):
@@ -33,7 +29,6 @@ def save_state(state: dict):
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
-# ── 매수 배율 계산 ───────────────────────────────────────────
 def get_buy_ratio(current_price: float, avg_price: float) -> float:
     if avg_price == 0:
         return 1.0
@@ -44,7 +39,6 @@ def get_buy_ratio(current_price: float, avg_price: float) -> float:
     return 2.5
 
 
-# ── 평단 업데이트 ─────────────────────────────────────────────
 def update_avg(state: dict, buy_amount: float, price: float) -> dict:
     qty              = buy_amount / price
     state["total_cost"] += buy_amount
@@ -54,7 +48,6 @@ def update_avg(state: dict, buy_amount: float, price: float) -> dict:
     return state
 
 
-# ── 상태 초기화 (익절 후) ──────────────────────────────────────
 def reset_state(state: dict, ticker: str) -> dict:
     return {
         "ticker"    : ticker,
@@ -66,7 +59,6 @@ def reset_state(state: dict, ticker: str) -> dict:
     }
 
 
-# ── 빗썸 API 래퍼 ────────────────────────────────────────────
 class BithumbAPI:
     def __init__(self):
         if not TEST_MODE:
@@ -107,16 +99,10 @@ class BithumbAPI:
         return self.api.sell_market_order(ticker, qty)
 
 
-# ── 무한매수 실행 ─────────────────────────────────────────────
 def run_trade(ticker: str) -> dict:
-    """
-    무한매수법 1사이클 1슬롯 실행
-    Returns: 실행 결과 dict
-    """
     api   = BithumbAPI()
     state = load_state()
 
-    # 종목 변경 시 상태 초기화
     if state["ticker"] and state["ticker"] != ticker:
         print(f"  ⚠️ 종목 변경: {state['ticker']} → {ticker}")
         state = reset_state(state, ticker)
@@ -128,7 +114,6 @@ def run_trade(ticker: str) -> dict:
     print(f"  종목: {ticker}  |  현재가: {current:,.0f}원  |  "
           f"평단: {avg:,.0f}원  |  슬롯: {state['slot']}/{SPLIT}")
 
-    # ── 1. 익절 체크 ────────────────────────────────
     if avg > 0 and current >= avg * (1 + TARGET_PROFIT):
         qty        = api.get_coin_balance(ticker)
         api.sell(ticker, qty)
@@ -145,7 +130,6 @@ def run_trade(ticker: str) -> dict:
         print(f"  🎉 익절! +{profit_pct:.1f}% / +{profit_krw:,.0f}원")
         return result
 
-    # ── 2. 쿼터손절 체크 ─────────────────────────────
     if state["slot"] >= SPLIT:
         qty      = api.get_coin_balance(ticker)
         sell_qty = qty * QUARTER_SELL
@@ -154,22 +138,18 @@ def run_trade(ticker: str) -> dict:
         state["total_cost"] *= (1 - QUARTER_SELL)
         state["slot"]        = int(SPLIT * (1 - QUARTER_SELL))
         save_state(state)
-        result = {"action": "quarter_sell", "ticker": ticker,
-                  "total_slots": SPLIT}
-        print(f"  ⚠️ 쿼터손절 실행 (1/4 매도)")
-        return result
+        return {"action": "quarter_sell", "ticker": ticker, "total_slots": SPLIT}
 
-    # ── 3. 분할 매수 ──────────────────────────────────
     ratio      = get_buy_ratio(current, avg)
     krw_bal    = api.get_krw_balance(ticker)
     buy_amount = min(BASE_AMOUNT * ratio, krw_bal)
-    buy_amount = max(buy_amount, 1000)          # 최소 주문금액
+    buy_amount = max(buy_amount, 1000)
 
     api.buy(ticker, buy_amount)
     state = update_avg(state, buy_amount, current)
     save_state(state)
 
-    result = {
+    return {
         "action"     : "buy",
         "ticker"     : ticker,
         "amount"     : buy_amount,
@@ -180,26 +160,3 @@ def run_trade(ticker: str) -> dict:
         "total_slots": SPLIT,
         "ratio"      : ratio,
     }
-    print(f"  ✅ 매수 {buy_amount:,.0f}원 (x{ratio}배)  |  "
-          f"새 평단: {state['avg_price']:,.0f}원")
-    return result
-
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("Step 8: 자동거래 테스트 (시뮬레이션)")
-    print("=" * 50)
-
-    # state.json 초기화
-    if os.path.exists(STATE_FILE):
-        os.remove(STATE_FILE)
-
-    print("\n[3회 연속 매수 시뮬레이션]")
-    for i in range(3):
-        print(f"\n▶ 슬롯 {i+1}")
-        result = run_trade("XRP")
-        print(f"  결과: {result}")
-
-    print("\n[현재 state.json]")
-    with open(STATE_FILE) as f:
-        print(json.dumps(json.load(f), indent=2, ensure_ascii=False))
