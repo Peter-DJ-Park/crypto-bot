@@ -2,13 +2,15 @@
 [Step 6] 텔레그램 리포트 + 차트 이미지 발송
 """
 import requests
-from config import TELEGRAM_TOKEN, TELEGRAM_CHATID, TEST_MODE
+from config import TELEGRAM_TOKEN, TELEGRAM_CHATID
+
+# 텔레그램은 항상 실제 발송 (TEST_MODE 무관)
+TELEGRAM_ENABLED = bool(TELEGRAM_TOKEN and TELEGRAM_CHATID)
 
 
 def send_message(text: str) -> bool:
-    """텍스트 메시지 발송"""
-    if TEST_MODE:
-        print("\n[텔레그램 발송 시뮬레이션]")
+    if not TELEGRAM_ENABLED:
+        print("\n[텔레그램 키 없음 - 시뮬레이션]")
         import re
         print(re.sub(r"<[^>]+>", "", text))
         return True
@@ -26,9 +28,8 @@ def send_message(text: str) -> bool:
 
 
 def send_photo(image_path: str, caption: str = "") -> bool:
-    """이미지 + 캡션 발송"""
-    if TEST_MODE:
-        print(f"  [이미지 발송 시뮬레이션] {image_path}")
+    if not TELEGRAM_ENABLED:
+        print(f"  [이미지 키 없음 - 시뮬레이션] {image_path}")
         return True
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
