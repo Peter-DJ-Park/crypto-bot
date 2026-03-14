@@ -1,11 +1,9 @@
-"""
-[Step 8] 무한매수법 자동거래 실행
-"""
 import json
 import os
 from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
                     BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
+
 
 def load_state() -> dict:
     default = {
@@ -18,8 +16,11 @@ def load_state() -> dict:
     }
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
-            saved = json.load(f)
-            default.update(saved)
+            try:
+                saved = json.load(f)
+                default.update(saved)
+            except Exception:
+                pass
     return default
 
 
@@ -28,18 +29,18 @@ def save_state(state: dict):
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
-def get_buy_ratio(current_price: float, avg_price: float) -> float:
-    if avg_price == 0:
+def get_buy_ratio(current: float, avg: float) -> float:
+    if avg == 0:
         return 1.0
-    drop_rate = (current_price - avg_price) / avg_price
+    drop = (current - avg) / avg
     for threshold, ratio in BUY_RATIO_TABLE:
-        if drop_rate >= threshold:
+        if drop >= threshold:
             return ratio
     return 2.5
 
 
 def update_avg(state: dict, buy_amount: float, price: float) -> dict:
-    qty              = buy_amount / price
+    qty = buy_amount / price
     state["total_cost"] += buy_amount
     state["total_qty"]  += qty
     state["avg_price"]   = state["total_cost"] / state["total_qty"]
@@ -60,48 +61,75 @@ def reset_state(state: dict, ticker: str) -> dict:
 
 class BithumbAPI:
     def __init__(self):
-        if not TEST_MODE:
-            import pybithumb
-            self.api = pybithumb.Bithumb(BITHUMB_ACCESS, BITHUMB_SECRET)
-        else:
-            self.api = None
+        self._api = None
+        if TRADE_MODE:
+            try:
+                import pybithumb
+                self._api = pybithumb.Bithumb(BITHUMB_ACCESS, BITHUMB_SECRET)
+                print("  ✅ 빗썸 실거래 연결 성공")
+            except Exception as e:
+                print(f"  ❌ 빗썸 연결 실패: {e}")
 
     def get_price(self, ticker: str) -> float:
-        if TEST_MODE:
-            from mock_data import MOCK_PRICES
-            import random
-            base = MOCK_PRICES.get(ticker, 1000)
-            return base * (1 + random.uniform(-0.02, 0.02))
-        import pybithumb
-        return float(pybithumb.get_current_price(ticker))
+        try:
+            import pybithumb
+            price = pybithumb.get_current_price(ticker)
+            if price and float(price) > 0:
+                return float(price)
+        except Exception as e:
+            print(f"  ⚠️ 현재가 조회 실패: {e}")
+        from mock_data import MOCK_PRICES
+        import random
+        return MOCK_PRICES.get(ticker, 1000) * (1 + random.uniform(-0.02, 0.02))
 
     def get_krw_balance(self, ticker: str) -> float:
-        if TEST_MODE:
-            return 100_000.0
-        return float(self.api.get_balance(ticker)[2])
+        if not TRADE_MODE or not self._api:
+            return BASE_AMOUNT * SPLIT
+        try:
+            return float(self._api.get_balance(ticker)[2])
+        except Exception as e:
+            print(f"  ❌ 잔고 조회 실패: {e}")
+            return 0.0
 
     def get_coin_balance(self, ticker: str) -> float:
-        if TEST_MODE:
+        if not TRADE_MODE or not self._api:
             return 0.0
-        return float(self.api.get_balance(ticker)[0])
+        try:
+            return float(self._api.get_balance(ticker)[0])
+        except Exception as e:
+            print(f"  ❌ 코인잔고 조회 실패: {e}")
+            return 0.0
 
     def buy(self, ticker: str, amount_krw: float):
-        if TEST_MODE:
+        if not TRADE_MODE or not self._api:
             print(f"  [시뮬레이션] {ticker} {amount_krw:,.0f}원 매수")
             return True
-        return self.api.buy_market_order(ticker, amount_krw)
+        try:
+            result = self._api.buy_market_order(ticker, amount_krw)
+            print(f"  🔴 실거래 매수 완료: {ticker} {amount_krw:,.0f}원")
+            return result
+        except Exception as e:
+            print(f"  ❌ 매수 실패: {e}")
+            return None
 
     def sell(self, ticker: str, qty: float):
-        if TEST_MODE:
+        if not TRADE_MODE or not self._api:
             print(f"  [시뮬레이션] {ticker} {qty:.6f} 매도")
             return True
-        return self.api.sell_market_order(ticker, qty)
+        try:
+            result = self._api.sell_market_order(ticker, qty)
+            print(f"  🔴 실거래 매도 완료: {ticker} {qty:.6f}")
+            return result
+        except Exception as e:
+            print(f"  ❌ 매도 실패: {e}")
+            return None
 
 
 def run_trade(ticker: str) -> dict:
     api   = BithumbAPI()
     state = load_state()
 
+    # 종목 변경 시 상태 초기화
     if state["ticker"] and state["ticker"] != ticker:
         print(f"  ⚠️ 종목 변경: {state['ticker']} → {ticker}")
         state = reset_state(state, ticker)
@@ -112,13 +140,15 @@ def run_trade(ticker: str) -> dict:
 
     print(f"  종목: {ticker}  |  현재가: {current:,.0f}원  |  "
           f"평단: {avg:,.0f}원  |  슬롯: {state['slot']}/{SPLIT}")
+    print(f"  거래모드: {'🔴 실거래' if TRADE_MODE else '🧪 시뮬레이션'}")
 
+    # ── 1. 익절 체크 ────────────────────────────────
     if avg > 0 and current >= avg * (1 + TARGET_PROFIT):
         qty        = api.get_coin_balance(ticker)
         api.sell(ticker, qty)
         profit_pct = (current - avg) / avg * 100
         profit_krw = (current - avg) * state["total_qty"]
-        result     = {
+        result = {
             "action"    : "sell",
             "ticker"    : ticker,
             "cycle"     : state["cycle"],
@@ -129,6 +159,7 @@ def run_trade(ticker: str) -> dict:
         print(f"  🎉 익절! +{profit_pct:.1f}% / +{profit_krw:,.0f}원")
         return result
 
+    # ── 2. 쿼터손절 체크 ─────────────────────────────
     if state["slot"] >= SPLIT:
         qty      = api.get_coin_balance(ticker)
         sell_qty = qty * QUARTER_SELL
@@ -137,8 +168,10 @@ def run_trade(ticker: str) -> dict:
         state["total_cost"] *= (1 - QUARTER_SELL)
         state["slot"]        = int(SPLIT * (1 - QUARTER_SELL))
         save_state(state)
+        print(f"  ⚠️ 쿼터손절 실행")
         return {"action": "quarter_sell", "ticker": ticker, "total_slots": SPLIT}
 
+    # ── 3. 분할 매수 ──────────────────────────────────
     ratio      = get_buy_ratio(current, avg)
     krw_bal    = api.get_krw_balance(ticker)
     buy_amount = min(BASE_AMOUNT * ratio, krw_bal)
@@ -147,6 +180,9 @@ def run_trade(ticker: str) -> dict:
     api.buy(ticker, buy_amount)
     state = update_avg(state, buy_amount, current)
     save_state(state)
+
+    print(f"  ✅ 매수완료: {buy_amount:,.0f}원 (x{ratio}배) "
+          f"→ 새 평단: {state['avg_price']:,.0f}원")
 
     return {
         "action"     : "buy",
