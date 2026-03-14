@@ -30,14 +30,12 @@ jobs:
           sudo apt-get install -y fonts-nanum
           fc-cache -fv
 
-      - name: state.json 복원 (이전 매매 상태 유지)
+      - name: state.json 저장 (다음 실행을 위해)
+        if: always()
         run: |
-          if [ -n "${{ secrets.STATE_JSON }}" ]; then
-            echo '${{ secrets.STATE_JSON }}' > state.json
-            echo "✅ state.json 복원 완료"
-          else
-            echo "{}" > state.json
-            echo "⚠️ 새로운 state.json 생성"
+          if [ -f state.json ]; then
+            echo "✅ state.json 저장 완료:"
+            cat state.json
           fi
 
       - name: 봇 실행
