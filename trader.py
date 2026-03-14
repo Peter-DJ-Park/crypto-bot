@@ -23,7 +23,6 @@ def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             saved = json.load(f)
-            # 저장된 값에 없는 키는 기본값으로 채움
             default.update(saved)
     return default
     }
