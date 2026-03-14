@@ -1,7 +1,4 @@
-"""
-전체 설정값 관리
-환경변수로 API 키를 주입받습니다.
-"""
+cat > ~/Downloads/crypto-bot-final/config.py << 'PYEOF'
 import os
 
 # ── 빗썸 API ─────────────────────────────────────────────
@@ -12,19 +9,18 @@ BITHUMB_SECRET  = os.getenv("BITHUMB_SECRET", "")
 TICKERS = ["BTC", "XRP", "ETH", "SOL", "DOGE"]
 
 # ── 무한매수법 설정 ───────────────────────────────────────
-TOTAL_SEED    = 100_000          # 총 시드 (원)
-SPLIT         = 20               # 분할 수
-BASE_AMOUNT   = TOTAL_SEED / SPLIT  # 1회 기본 매수금액 (5,000원)
-TARGET_PROFIT = 0.10             # 익절 목표 (+10%)
-QUARTER_SELL  = 0.25             # 쿼터손절 비율 (1/4)
+TOTAL_SEED    = 100_000
+SPLIT         = 20
+BASE_AMOUNT   = TOTAL_SEED / SPLIT
+TARGET_PROFIT = 0.10
+QUARTER_SELL  = 0.25
 
-# 매수 비중 테이블: (평단 대비 하락률 기준, 매수 배율)
 BUY_RATIO_TABLE = [
-    ( 0.00, 0.5),   # 평단 이상      → 0.5배
-    (-0.03, 1.0),   # -3%  이내     → 1.0배
-    (-0.07, 1.5),   # -7%  이내     → 1.5배
-    (-0.10, 2.0),   # -10% 이내     → 2.0배
-    (-0.99, 2.5),   # -10% 초과     → 2.5배
+    ( 0.00, 0.5),
+    (-0.03, 1.0),
+    (-0.07, 1.5),
+    (-0.10, 2.0),
+    (-0.99, 2.5),
 ]
 
 # ── 네이버 뉴스 API ──────────────────────────────────────
@@ -44,5 +40,10 @@ TELEGRAM_CHATID = os.getenv("TELEGRAM_CHATID", "")
 STATE_FILE = "state.json"
 CHART_DIR  = "charts"
 
-# API 키가 없으면 자동으로 테스트 모드 (목데이터 사용)
-TEST_MODE = not bool(BITHUMB_ACCESS and BITHUMB_SECRET)
+# 빗썸 키 없으면 목데이터 사용
+TEST_MODE  = not bool(BITHUMB_ACCESS and BITHUMB_SECRET)
+
+# 빗썸 키 있으면 실거래 실행
+TRADE_MODE = bool(BITHUMB_ACCESS and BITHUMB_SECRET)
+PYEOF
+echo "✅ config.py 완료"
