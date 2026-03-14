@@ -2,13 +2,14 @@ name: 암호화폐 분석봇 (무한매수법)
 
 on:
   schedule:
+    # 매일 KST 오전 9시 (UTC 00:00)
     - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: 코드 체크아웃
@@ -31,8 +32,14 @@ jobs:
 
       - name: state.json 복원
         run: |
-          echo '${{ secrets.STATE_JSON }}' > state.json
-          echo "✅ 복원된 state.json:"
+          STATE='${{ secrets.STATE_JSON }}'
+          if [ -z "$STATE" ] || [ "$STATE" = "null" ] || [ "$STATE" = "" ]; then
+            echo '{"ticker":"","cycle":1,"slot":0,"avg_price":0.0,"total_qty":0.0,"total_cost":0.0}' > state.json
+            echo "⚠️ 새 state.json 생성"
+          else
+            echo "$STATE" > state.json
+            echo "✅ state.json 복원 완료"
+          fi
           cat state.json
 
       - name: 봇 실행
@@ -46,14 +53,14 @@ jobs:
           TELEGRAM_TOKEN:      ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHATID:     ${{ secrets.TELEGRAM_CHATID }}
 
-      - name: state.json 자동 저장
+      - name: state.json → Secrets 자동 저장
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           if [ -f state.json ]; then
-            echo "✅ state.json 저장 중..."
+            echo "✅ 저장할 state.json:"
             cat state.json
             gh secret set STATE_JSON < state.json
-            echo "✅ Secrets 업데이트 완료!"
+            echo "✅ STATE_JSON Secrets 업데이트 완료!"
           fi
