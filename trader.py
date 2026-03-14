@@ -12,16 +12,20 @@ from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
 
 # ── 상태 관리 ────────────────────────────────────────────────
 def load_state() -> dict:
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    return {
+    default = {
         "ticker"    : "",
         "cycle"     : 1,
-        "slot"      : 0,       # 현재 매수 횟수
-        "avg_price" : 0.0,     # 평균 매수단가
-        "total_qty" : 0.0,     # 보유 수량
-        "total_cost": 0.0,     # 총 투입 비용
+        "slot"      : 0,
+        "avg_price" : 0.0,
+        "total_qty" : 0.0,
+        "total_cost": 0.0,
+    }
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            saved = json.load(f)
+            # 저장된 값에 없는 키는 기본값으로 채움
+            default.update(saved)
+    return default
     }
 
 
