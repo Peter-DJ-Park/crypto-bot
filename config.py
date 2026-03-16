@@ -12,7 +12,7 @@ BITHUMB_ACCESS  = os.getenv("BITHUMB_ACCESS", "")
 BITHUMB_SECRET  = os.getenv("BITHUMB_SECRET", "")
 
 # ── 분석 대상 코인 ────────────────────────────────────────
-TICKERS = ["BTC", "XRP", "ETH", "SOL", "DOGE"]
+TICKERS = ["BTC", "XRP", "ETH", "SOL"]
 
 # ── 무한매수법 설정 ───────────────────────────────────────
 TOTAL_SEED    = 100_000
