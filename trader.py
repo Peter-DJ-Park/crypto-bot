@@ -97,12 +97,14 @@ class BithumbAPI:
         # 💡 시장가 매수 시 빗썸 1.0의 가장 성공률 높은 파라미터 구성
         # 엔드포인트를 /trade/market_buy로 유지하되, units를 더 정교하게 다듬음
         units = round(amount_krw / price, 4)
-        
+        if units <= 0:
+            print(f"  ❌ 수량 계산 오류: {units}")
+            return None
+
         params = {
             "endpoint": "/trade/market_buy",
-            "units": str(units), # 문자열로 명시적 변환
+            "units"   : f"{units:.4f}",
             "currency": ticker.upper()
-        }
         
         res = self.api.post_request("/trade/market_buy", params)
         
