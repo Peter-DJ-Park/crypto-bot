@@ -6,6 +6,7 @@ import os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.rc('font', family='NanumGothic') # 이 줄을 추가!
 import matplotlib.gridspec as gridspec
 import pandas as pd
 import numpy as np
