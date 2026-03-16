@@ -58,7 +58,7 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
     prompt = _build_prompt(analysis, keywords)
 
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}")
+           f"gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
         url,
