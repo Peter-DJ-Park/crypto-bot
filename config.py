@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# 💡 현재 폴더에 있는 .env 파일을 찾아 환경변수로 불러옵니다.
+load_dotenv()
 
 # ── 빗썸 API ─────────────────────────────────────────────
 BITHUMB_ACCESS  = os.getenv("BITHUMB_ACCESS", "")
@@ -37,12 +41,12 @@ TELEGRAM_CHATID = os.getenv("TELEGRAM_CHATID", "")
 STATE_FILE = "state.json"
 CHART_DIR  = "charts"
 
-# 빗썸 키 없으면 목데이터
+# ── 모드 설정 ────────────────────────────────────────────
+# 빗썸 키가 없으면 목데이터(테스트) 모드
 TEST_MODE  = not bool(BITHUMB_ACCESS and BITHUMB_SECRET)
 
-# 빗썸 키 있으면 실거래
+# 빗썸 키가 정상적으로 있으면 실거래 모드 켜짐!
 TRADE_MODE = bool(BITHUMB_ACCESS and BITHUMB_SECRET)
-
 
 # ── Gemini API (무료) ───────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
