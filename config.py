@@ -1,5 +1,12 @@
 import os
 
+# 내 컴퓨터(로컬)에서는 .env를 읽고, 깃허브 액션에서는 에러 없이 넘어갑니다.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # ── 빗썸 API ─────────────────────────────────────────────
 BITHUMB_ACCESS  = os.getenv("BITHUMB_ACCESS", "")
 BITHUMB_SECRET  = os.getenv("BITHUMB_SECRET", "")
@@ -37,12 +44,12 @@ TELEGRAM_CHATID = os.getenv("TELEGRAM_CHATID", "")
 STATE_FILE = "state.json"
 CHART_DIR  = "charts"
 
-# 빗썸 키 없으면 목데이터
+# ── 모드 설정 ────────────────────────────────────────────
+# 빗썸 키가 없으면 목데이터(테스트) 모드
 TEST_MODE  = not bool(BITHUMB_ACCESS and BITHUMB_SECRET)
 
-# 빗썸 키 있으면 실거래
+# 빗썸 키가 정상적으로 있으면 실거래 모드 켜짐!
 TRADE_MODE = bool(BITHUMB_ACCESS and BITHUMB_SECRET)
-
 
 # ── Gemini API (무료) ───────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

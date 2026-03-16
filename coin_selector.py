@@ -54,11 +54,11 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 실제 호출 (무료 tierl)"""
+    """Gemini API 실제 호출 (멀티 파트 조각 모음 & 끝판왕 파싱 방어)"""
     prompt = _build_prompt(analysis, keywords)
 
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}")
+           f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
         url,
@@ -66,25 +66,43 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
         json={
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature"    : 0.3,
-                "maxOutputTokens": 1024,
+                "temperature"     : 0.3,
+                "responseMimeType": "application/json"
+                # 💡 maxOutputTokens 항목을 아예 지워버리세요!
             },
         },
         timeout=30,
     )
     response.raise_for_status()
 
-    text = (response.json()
-            ["candidates"][0]["content"]["parts"][0]["text"].strip())
+    # 1. API 응답 데이터 추출
+    data = response.json()
+    candidate = data["candidates"][0]
 
-    # 마크다운 코드블록 제거
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-        text = text.strip().rstrip("```").strip()
+    # 2. 💡 핵심: 답변이 여러 조각(parts)으로 나뉘어 올 경우 하나로 합치기
+    parts = candidate.get("content", {}).get("parts", [])
+    text = "".join([p.get("text", "") for p in parts]).strip()
 
-    return json.loads(text)
+    # (디버깅용) 혹시 글자 수 제한이나 안전 필터에 걸려 끊겼는지 확인
+    finish_reason = candidate.get("finishReason", "UNKNOWN")
+
+    # 3. 앞뒤 불필요한 텍스트 쳐내고 딱 { 부터 } 까지만 추출
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        text = text[start_idx:end_idx+1]
+
+    # 4. JSON 문법을 깨는 줄바꿈(\n) 기호 공백으로 치환
+    text = text.replace("\n", " ")
+
+    # JSON 변환 및 에러 확인
+    try:
+        return json.loads(text)
+    except Exception as e:
+        print(f"\n[🚨 JSON 파싱 에러 발생: {e}]")
+        print(f"🛑 AI 답변 종료 사유(finishReason): {finish_reason}")
+        print(f"👀 AI 원본 응답 내용:\n{text}\n")
+        raise e
 
 
 def select_coin_mock(analysis: dict, keywords: list) -> dict:
@@ -115,7 +133,7 @@ def select_coin(analysis: dict, keywords: list) -> dict:
             print("  모드: 🧪 목 선정")
         else:
             result = select_coin_real(analysis, keywords)
-            print("  모드: 🤖 Gemini AI (gemini-1.5-flash)")
+            print("  모드: 🤖 Gemini AI (gemini-2.5-flash)")
 
         print(f"  ✅ 선정 종목: {result['selected']}")
         print(f"  이유: {result['reason']}")
