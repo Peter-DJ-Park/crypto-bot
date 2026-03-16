@@ -2,8 +2,7 @@ name: 암호화폐 분석봇 (무한매수법)
 
 on:
   schedule:
-    # 매일 KST 오전 9시 (UTC 00:00)
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'   # 매일 KST 오전 9시
   workflow_dispatch:
 
 jobs:
@@ -49,11 +48,11 @@ jobs:
           BITHUMB_SECRET:      ${{ secrets.BITHUMB_SECRET }}
           NAVER_CLIENT_ID:     ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_TOKEN:      ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHATID:     ${{ secrets.TELEGRAM_CHATID }}
 
-      - name: state.json → Secrets 자동 저장
+      - name: state.json 자동 저장
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -62,5 +61,5 @@ jobs:
             echo "✅ 저장할 state.json:"
             cat state.json
             gh secret set STATE_JSON < state.json
-            echo "✅ STATE_JSON Secrets 업데이트 완료!"
+            echo "✅ STATE_JSON 업데이트 완료!"
           fi
