@@ -54,10 +54,9 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 실제 호출 (JSON 파싱 방어 & 최신 모델 적용)"""
+    """Gemini API 실제 호출 (멀티 파트 조각 모음 & 끝판왕 파싱 방어)"""
     prompt = _build_prompt(analysis, keywords)
 
-    # 🚨 이번엔 진짜 맞습니다! 1.5가 아닌 2.5-flash 최신 모델입니다.
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
 
@@ -69,23 +68,31 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
             "generationConfig": {
                 "temperature"     : 0.3,
                 "maxOutputTokens" : 1024,
-                "responseMimeType": "application/json", # AI에게 JSON 문법 엄수 지시
+                "responseMimeType": "application/json", 
             },
         },
         timeout=30,
     )
     response.raise_for_status()
 
-    # AI 응답 텍스트 추출
-    text = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    # 1. API 응답 데이터 추출
+    data = response.json()
+    candidate = data["candidates"][0]
 
-    # 마크다운 코드블록(```json 등) 제거 처리
-    if text.startswith("```"):
-        text = text.strip("```").strip()
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
+    # 2. 💡 핵심: 답변이 여러 조각(parts)으로 나뉘어 올 경우 하나로 합치기
+    parts = candidate.get("content", {}).get("parts", [])
+    text = "".join([p.get("text", "") for p in parts]).strip()
 
-    # 줄바꿈 기호(\n)가 JSON 문법을 깨는 것을 방지하기 위해 공백으로 치환
+    # (디버깅용) 혹시 글자 수 제한이나 안전 필터에 걸려 끊겼는지 확인
+    finish_reason = candidate.get("finishReason", "UNKNOWN")
+
+    # 3. 앞뒤 불필요한 텍스트 쳐내고 딱 { 부터 } 까지만 추출
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        text = text[start_idx:end_idx+1]
+
+    # 4. JSON 문법을 깨는 줄바꿈(\n) 기호 공백으로 치환
     text = text.replace("\n", " ")
 
     # JSON 변환 및 에러 확인
@@ -93,6 +100,7 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
         return json.loads(text)
     except Exception as e:
         print(f"\n[🚨 JSON 파싱 에러 발생: {e}]")
+        print(f"🛑 AI 답변 종료 사유(finishReason): {finish_reason}")
         print(f"👀 AI 원본 응답 내용:\n{text}\n")
         raise e
 
