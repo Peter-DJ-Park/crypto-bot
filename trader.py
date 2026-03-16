@@ -1,4 +1,3 @@
-cat > ~/Downloads/crypto-bot-final/trader.py << 'PYEOF'
 """
 [Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0)
 """
@@ -199,10 +198,10 @@ def run_trade(ticker: str) -> dict:
         state = reset_state(state, ticker)
     state["ticker"] = ticker
 
-    current       = api.get_price(ticker)
+    current           = api.get_price(ticker)
     krw_bal, coin_bal = api.get_balances(ticker)
-    avg           = state["avg_price"]
-    mode          = "🔴 실거래" if TRADE_MODE else "🧪 시뮬레이션"
+    avg               = state["avg_price"]
+    mode              = "🔴 실거래" if TRADE_MODE else "🧪 시뮬레이션"
 
     print(f"  종목: {ticker}  |  현재가: {current:,.0f}원  |  "
           f"평단: {avg:,.0f}원  |  슬롯: {state['slot']}/{SPLIT}")
@@ -258,8 +257,4 @@ def run_trade(ticker: str) -> dict:
             "total_slots": SPLIT,
             "ratio"      : ratio,
         }
-    else:
-        return {"action": "fail", "ticker": ticker}
-PYEOF
-echo "✅ trader.py 완료"</parameter>
-<parameter name="description">Overwrite trader.py completely clean</parameter>
+    return {"action": "fail", "ticker": ticker}
