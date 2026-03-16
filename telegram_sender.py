@@ -75,7 +75,9 @@ def send_trade_result(result: dict):
         msg = (
             f"✅ <b>매수 완료</b>\n"
             f"종목: <b>{result['ticker']}</b>\n"
-            f"매수금액: {result['amount']:,.0f}원\n"
+            # 수정 전f"매수금액: {result['amount']:,.0f}원\n"
+            # 수정 후 (값이 없으면 0으로 표시)
+            f"매수금액: {result.get('amount', 0):,.0f}원\n"
             f"현재가: {result['current']:,.0f}원\n"
             f"평단가: {result['avg_price']:,.0f}원\n"
             f"목표가: {result['target']:,.0f}원 (+10%)\n"
