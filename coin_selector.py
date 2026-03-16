@@ -57,8 +57,9 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
     """Gemini API 실제 호출 (무료 tierl)"""
     prompt = _build_prompt(analysis, keywords)
 
+# gemini-1.5-flash 대신 최신 모델인 gemini-2.5-flash 사용
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}")
+           f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
         url,
@@ -115,7 +116,7 @@ def select_coin(analysis: dict, keywords: list) -> dict:
             print("  모드: 🧪 목 선정")
         else:
             result = select_coin_real(analysis, keywords)
-            print("  모드: 🤖 Gemini AI (gemini-1.5-flash)")
+            print("  모드: 🤖 Gemini AI (gemini-2.5-flash)")
 
         print(f"  ✅ 선정 종목: {result['selected']}")
         print(f"  이유: {result['reason']}")
