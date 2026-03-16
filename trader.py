@@ -83,7 +83,9 @@ class BithumbV1Client:
         )
         return {
             "Api-Key"     : self.access_key,
-            "Api-Sign"    : base64.b64encode(h.hexdigest().encode("utf-8")).decode("utf-8"),
+            "Api-Sign"    : base64.b64encode(
+                                h.hexdigest().encode("utf-8")
+                            ).decode("utf-8"),
             "Api-Nonce"   : nonce,
             "Content-Type": "application/x-www-form-urlencoded",
         }
@@ -127,7 +129,8 @@ class BithumbAPI:
             res = self.client.post_request("/info/balance", params)
             if res.get("status") == "0000":
                 krw  = float(res["data"]["available_krw"])
-                coin = float(res["data"].get(f"available_{ticker.lower()}", 0))
+                coin = float(res["data"].get(
+                    f"available_{ticker.lower()}", 0))
                 print(f"  💰 KRW 잔고: {krw:,.0f}원")
                 return krw, coin
             else:
@@ -140,50 +143,68 @@ class BithumbAPI:
         if not TRADE_MODE:
             print(f"  [시뮬레이션] {ticker} {amount_krw:,.0f}원 매수")
             return {"status": "0000"}
+
         price = self.get_price(ticker)
         if price <= 0:
             print("  ❌ 가격 조회 실패로 매수 중단")
             return None
-        units = round(amount_krw / price, 4)
+
+        # 수량 계산: 소수점 8자리까지 허용
+        units = amount_krw / price
+        units = round(units, 8)
+
         if units <= 0:
             print(f"  ❌ 수량 계산 오류: {units}")
             return None
+
+        print(f"  🔍 매수 시도: {ticker} {amount_krw:,.0f}원 / "
+              f"{price:,.0f}원 = {units}개")
+
+        # 방법 1: market_buy (수량 기반)
         params = {
             "endpoint": "/trade/market_buy",
-            "units"   : f"{units:.4f}",
+            "units"   : str(units),
             "currency": ticker.upper(),
         }
         res = self.client.post_request("/trade/market_buy", params)
+        print(f"  market_buy 응답: {res.get('status')} {res.get('message','')}")
+
         if res.get("status") == "0000":
-            print(f"  🔴 실거래 매수 완료: {ticker} {amount_krw:,.0f}원 ({units:.4f}개)")
+            print(f"  🔴 실거래 매수 완료: {ticker} "
+                  f"{amount_krw:,.0f}원 ({units}개)")
             return res
-        print(f"  ⚠️ market_buy 실패 ({res.get('message')}), place 주문 시도...")
+
+        # 방법 2: place 지정가 주문 (시장가 근사)
+        print(f"  ⚠️ market_buy 실패, place 주문 시도...")
         params2 = {
             "endpoint": "/trade/place",
             "type"    : "bid",
             "price"   : str(int(price)),
-            "units"   : f"{units:.4f}",
+            "units"   : str(units),
             "currency": ticker.upper(),
         }
         res2 = self.client.post_request("/trade/place", params2)
+        print(f"  place 응답: {res2.get('status')} {res2.get('message','')}")
+
         if res2.get("status") == "0000":
             print(f"  🔴 place 매수 완료: {ticker} {amount_krw:,.0f}원")
             return res2
+
         print(f"  ❌ 매수 최종 실패: {res2}")
         return None
 
     def sell(self, ticker: str, qty: float):
         if not TRADE_MODE:
-            print(f"  [시뮬레이션] {ticker} {qty:.4f}개 매도")
+            print(f"  [시뮬레이션] {ticker} {qty}개 매도")
             return {"status": "0000"}
         params = {
             "endpoint": "/trade/market_sell",
-            "units"   : f"{qty:.4f}",
+            "units"   : str(round(qty, 8)),
             "currency": ticker.upper(),
         }
         res = self.client.post_request("/trade/market_sell", params)
         if res.get("status") == "0000":
-            print(f"  🔴 실거래 매도 완료: {ticker} {qty:.4f}개")
+            print(f"  🔴 실거래 매도 완료: {ticker} {qty}개")
         else:
             print(f"  ❌ 매도 실패: {res}")
         return res
@@ -233,7 +254,8 @@ def run_trade(ticker: str) -> dict:
         state["total_cost"] *= (1 - QUARTER_SELL)
         state["slot"]        = int(SPLIT * (1 - QUARTER_SELL))
         save_state(state)
-        return {"action": "quarter_sell", "ticker": ticker, "total_slots": SPLIT}
+        return {"action": "quarter_sell", "ticker": ticker,
+                "total_slots": SPLIT}
 
     # 3. 분할 매수
     ratio      = get_buy_ratio(current, avg)
