@@ -57,7 +57,7 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
     """Gemini API 실제 호출 (무료 tierl)"""
     prompt = _build_prompt(analysis, keywords)
 
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+    url = (f"https://generativelanguage.googleapis.com/v1/models/"
            f"gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
