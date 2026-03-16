@@ -23,6 +23,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          pip install PyJWT requests
 
       - name: 한국어 폰트 설치
         run: |
