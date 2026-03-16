@@ -1,5 +1,5 @@
 """
-[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 파라미터 교정본)
+[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 최종 파라미터 교정)
 """
 import json
 import os
@@ -14,7 +14,7 @@ from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
                     BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
 
-# --- 유틸리티 함수 (기존과 동일) ---
+# --- 유틸리티 함수 (동일) ---
 def load_state() -> dict:
     default = {"ticker": "", "cycle": 1, "slot": 0, "avg_price": 0.0, "total_qty": 0.0, "total_cost": 0.0}
     if os.path.exists(STATE_FILE):
@@ -55,6 +55,7 @@ class BithumbV1Client:
     def _signature(self, endpoint, params):
         nonce = str(int(time.time() * 1000))
         query_str = urlencode(params)
+        # 중요: 1.0 방식은 endpoint + \0 + query + \0 + nonce 순서
         data = endpoint + chr(0) + query_str + chr(0) + nonce
         h = hmac.new(self.secret_key.encode('utf-8'), data.encode('utf-8'), hashlib.sha512)
         return {
@@ -84,9 +85,10 @@ class BithumbAPI:
     def get_balances(self, ticker: str):
         if not TRADE_MODE: return 100000.0, 0.0
         try:
-            res = self.api.post_request("/info/balance", currency=ticker)
+            # 빗썸 1.0은 대문자 티커만 받음
+            res = self.api.post_request("/info/balance", currency=ticker.upper())
             if res.get('status') == '0000':
-                return float(res['data']['available_krw']), float(res['data'][f'available_{ticker.lower()}'])
+                return float(res['data']['available_krw']), float(res['data'][f"available_{ticker.lower()}"])
         except: pass
         return 0.0, 0.0
 
@@ -94,9 +96,17 @@ class BithumbAPI:
         if not TRADE_MODE: return {"status": "0000"}
         price = self.get_price(ticker)
         if price == 0: return None
-        # 빗썸 1.0 시장가 매수는 소수점 4자리까지의 수량(units)을 요구함
-        units = float(f"{amount_krw / price:.4f}") 
-        res = self.api.post_request("/trade/market_buy", units=units, currency=ticker)
+        
+        # 💡 핵심 수정: 수량 계산 및 소수점 제한 (DOGE 등 저가 코인은 정수 혹은 소수점 4자리)
+        units = round(amount_krw / price, 4)
+        
+        # 💡 핵심 수정: 1.0 시장가 매수는 units와 currency가 필수
+        params = {
+            "units": str(units), 
+            "currency": ticker.upper()
+        }
+        res = self.api.post_request("/trade/market_buy", **params)
+        
         if res.get('status') == '0000':
             print(f"  🔴 매수 성공: {units} {ticker}")
             return res
@@ -105,8 +115,11 @@ class BithumbAPI:
 
     def sell(self, ticker, qty):
         if not TRADE_MODE: return {"status": "0000"}
-        units = float(f"{qty:.4f}")
-        return self.api.post_request("/trade/market_sell", units=units, currency=ticker)
+        params = {
+            "units": str(round(qty, 4)),
+            "currency": ticker.upper()
+        }
+        return self.api.post_request("/trade/market_sell", **params)
 
 def run_trade(ticker: str) -> dict:
     api = BithumbAPI()
@@ -119,7 +132,6 @@ def run_trade(ticker: str) -> dict:
     krw_bal, coin_bal = api.get_balances(ticker)
     avg = state["avg_price"]
     
-    # 기본 결과 포맷 (KeyError 방지)
     result = {"action": "hold", "ticker": ticker, "amount": 0, "current": current, "avg_price": avg, "slot": state["slot"], "total_slots": SPLIT}
 
     # 1. 익절 체크
@@ -139,6 +151,6 @@ def run_trade(ticker: str) -> dict:
         save_state(state)
         result.update({"action": "buy", "amount": buy_amount, "avg_price": state["avg_price"], "slot": state["slot"]})
     else:
-        result["action"] = "fail" # 매수 실패 시 action을 fail로 변경
+        result["action"] = "fail"
     
     return result
