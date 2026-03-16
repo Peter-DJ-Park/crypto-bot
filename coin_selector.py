@@ -54,12 +54,12 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 실제 호출 (무료 tierl)"""
+    """Gemini API 실제 호출 (JSON 파싱 에러 방어 적용)"""
     prompt = _build_prompt(analysis, keywords)
 
-# gemini-1.5-flash 대신 최신 모델인 gemini-2.5-flash 사용
+    # v1beta 및 1.5-flash 모델 적용 (작동이 확인된 주소)
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
+           f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
         url,
@@ -67,26 +67,35 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
         json={
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature"    : 0.3,
-                "maxOutputTokens": 1024,
-                "responseMimeType": "application/json" # 이 줄을 추가!
+                "temperature"     : 0.3,
+                "maxOutputTokens" : 1024,
+                "responseMimeType": "application/json", # AI에게 JSON 문법 엄수 지시
             },
         },
         timeout=30,
     )
     response.raise_for_status()
 
-    text = (response.json()
-            ["candidates"][0]["content"]["parts"][0]["text"].strip())
+    # AI 응답 텍스트 추출
+    text = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-    # 마크다운 코드블록 제거
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-        text = text.strip().rstrip("```").strip()
+    # 마크다운 코드블록(```json 등) 제거 처리
+    if text.startswith("```"):
+        text = text.strip("```").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
 
-    return json.loads(text)
+    # 줄바꿈 기호(\n)가 JSON 문법을 깨는 것을 방지하기 위해 공백으로 치환
+    text = text.replace("\n", " ")
+
+    # JSON 변환 및 에러 확인
+    try:
+        return json.loads(text)
+    except Exception as e:
+        # 파싱에 실패하면 AI의 진짜 답변이 무엇이었는지 화면에 강제 출력!
+        print(f"\n[🚨 JSON 파싱 에러 발생: {e}]")
+        print(f"👀 AI 원본 응답 내용:\n{text}\n")
+        raise e
 
 
 def select_coin_mock(analysis: dict, keywords: list) -> dict:
