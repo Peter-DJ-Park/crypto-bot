@@ -69,6 +69,7 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
             "generationConfig": {
                 "temperature"    : 0.3,
                 "maxOutputTokens": 1024,
+                "responseMimeType": "application/json" # 이 줄을 추가!
             },
         },
         timeout=30,
