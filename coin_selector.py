@@ -1,10 +1,11 @@
 """
 [Step 7] Gemini AI 기반 종목 선정
-무료 티어 - 하루 1,500회 무료 호출
+429 오류 시 자동 재시도 + 백오프
 """
 import json
+import time
 import requests
-from config import GEMINI_API_KEY, TICKERS, TEST_MODE
+from config import GEMINI_API_KEY, TEST_MODE
 
 
 def _build_prompt(analysis: dict, keywords: list) -> str:
@@ -54,59 +55,61 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 실제 호출 (멀티 파트 조각 모음 & 끝판왕 파싱 방어)"""
+    """Gemini API 호출 (429 시 최대 3회 재시도)"""
     prompt = _build_prompt(analysis, keywords)
 
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
+    # 모델 우선순위: flash-lite → flash → 1.5-pro
+    models = [
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+    ]
 
-    response = requests.post(
-        url,
-        headers={"Content-Type": "application/json"},
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature"     : 0.3,
-                "responseMimeType": "application/json"
-                # 💡 maxOutputTokens 항목을 아예 지워버리세요!
-            },
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
+    for model in models:
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:generateContent?key={GEMINI_API_KEY}")
+        for attempt in range(3):
+            try:
+                response = requests.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature"    : 0.3,
+                            "maxOutputTokens": 512,
+                        },
+                    },
+                    timeout=30,
+                )
+                if response.status_code == 429:
+                    wait = (attempt + 1) * 10
+                    print(f"  ⚠️ {model} 429 오류, {wait}초 후 재시도...")
+                    time.sleep(wait)
+                    continue
+                if response.status_code == 404:
+                    print(f"  ⚠️ {model} 모델 없음, 다음 모델 시도...")
+                    break
+                response.raise_for_status()
+                text = (response.json()
+                        ["candidates"][0]["content"]["parts"][0]["text"]
+                        .strip())
+                if "```" in text:
+                    text = text.split("```")[1]
+                    if text.startswith("json"):
+                        text = text[4:]
+                    text = text.strip().rstrip("```").strip()
+                result = json.loads(text)
+                print(f"  모드: 🤖 Gemini AI ({model})")
+                return result
+            except Exception as e:
+                print(f"  ⚠️ {model} 시도 {attempt+1} 실패: {e}")
+                time.sleep(5)
 
-    # 1. API 응답 데이터 추출
-    data = response.json()
-    candidate = data["candidates"][0]
-
-    # 2. 💡 핵심: 답변이 여러 조각(parts)으로 나뉘어 올 경우 하나로 합치기
-    parts = candidate.get("content", {}).get("parts", [])
-    text = "".join([p.get("text", "") for p in parts]).strip()
-
-    # (디버깅용) 혹시 글자 수 제한이나 안전 필터에 걸려 끊겼는지 확인
-    finish_reason = candidate.get("finishReason", "UNKNOWN")
-
-    # 3. 앞뒤 불필요한 텍스트 쳐내고 딱 { 부터 } 까지만 추출
-    start_idx = text.find('{')
-    end_idx = text.rfind('}')
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        text = text[start_idx:end_idx+1]
-
-    # 4. JSON 문법을 깨는 줄바꿈(\n) 기호 공백으로 치환
-    text = text.replace("\n", " ")
-
-    # JSON 변환 및 에러 확인
-    try:
-        return json.loads(text)
-    except Exception as e:
-        print(f"\n[🚨 JSON 파싱 에러 발생: {e}]")
-        print(f"🛑 AI 답변 종료 사유(finishReason): {finish_reason}")
-        print(f"👀 AI 원본 응답 내용:\n{text}\n")
-        raise e
+    raise Exception("모든 Gemini 모델 호출 실패")
 
 
 def select_coin_mock(analysis: dict, keywords: list) -> dict:
-    """테스트용 목 결과: 신호가 가장 좋은 코인 자동 선정"""
     signal_priority = {
         "강력 매수 ⚡": 5, "매수 🟢": 4,
         "중립 ➡️"    : 3, "관망 🟡": 2, "매도/회피 🔴": 1,
@@ -118,8 +121,7 @@ def select_coin_mock(analysis: dict, keywords: list) -> dict:
     return {
         "selected"  : ticker,
         "reason"    : (f"RSI {ind['rsi']}로 매수 여력이 있으며 "
-                       f"BB위치 {ind['bb_pct']}%로 진입에 유리한 구간. "
-                       f"뉴스 감성 긍정적으로 단기 반등 기대."),
+                       f"BB위치 {ind['bb_pct']}%로 진입에 유리한 구간."),
         "risk_level": "중간",
         "strategy"  : "슬롯 1/20부터 분할 매수 시작, 평단 +10% 익절 목표",
         "caution"   : "시장 전반 급락 시 쿼터손절 기준 철저히 준수",
@@ -133,13 +135,10 @@ def select_coin(analysis: dict, keywords: list) -> dict:
             print("  모드: 🧪 목 선정")
         else:
             result = select_coin_real(analysis, keywords)
-            print("  모드: 🤖 Gemini AI (gemini-2.5-flash)")
-
         print(f"  ✅ 선정 종목: {result['selected']}")
         print(f"  이유: {result['reason']}")
         print(f"  리스크: {result['risk_level']}")
         return result
-
     except Exception as e:
         print(f"  ❌ 종목 선정 실패: {e}, 기본값 XRP 사용")
         return {
@@ -149,20 +148,3 @@ def select_coin(analysis: dict, keywords: list) -> dict:
             "strategy"  : "기본 무한매수법 적용",
             "caution"   : "수동으로 종목 재확인 필요",
         }
-
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("Step 7: Gemini AI 종목 선정")
-    print("=" * 50)
-    from mock_data import MOCK_OHLCV, MOCK_NEWS
-    from news_collector import extract_keywords
-    from analyzer import analyze_all
-
-    kw       = extract_keywords(MOCK_NEWS)
-    analysis = analyze_all(MOCK_OHLCV, kw)
-    result   = select_coin(analysis, kw)
-
-    print("\n[선정 결과]")
-    for k, v in result.items():
-        print(f"  {k:12s}: {v}")
