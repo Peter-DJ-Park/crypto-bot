@@ -67,8 +67,8 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature"     : 0.3,
-                "maxOutputTokens" : 2048, # 1024에서 2048로 넉넉하게 증가!
-                "responseMimeType": "application/json", 
+                "responseMimeType": "application/json"
+                # 💡 maxOutputTokens 항목을 아예 지워버리세요!
             },
         },
         timeout=30,
