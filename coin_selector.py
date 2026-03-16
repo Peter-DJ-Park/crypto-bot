@@ -67,7 +67,7 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
             "content-type"     : "application/json",
         },
         json={
-            "model"     : "claude-sonnet-4-20250514",
+            "model": "claude-3-5-sonnet-20241022",
             "max_tokens": 1024,
             "messages"  : [{"role": "user", "content": prompt}],
         },

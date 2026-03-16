@@ -87,6 +87,8 @@ class BithumbAPI:
             return 100_000.0
         try:
             balance = self.api.get_balance(ticker)
+            print(f"  🔍 잔고 전체: {balance}")
+            # pybithumb: (보유수량, 매수대기, KRW잔고, KRW대기)
             krw = float(balance[2])
             print(f"  💰 KRW 잔고: {krw:,.0f}원")
             return krw
