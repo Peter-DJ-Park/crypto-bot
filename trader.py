@@ -1,5 +1,5 @@
 """
-[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 규격 엄격 준수 버전)
+[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 통합 주문 방식)
 """
 import json
 import os
@@ -14,7 +14,7 @@ from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
                     BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
 
-# --- 유틸리티 함수 (기존과 동일) ---
+# --- 유틸리티 함수 (동일) ---
 def load_state() -> dict:
     default = {"ticker": "", "cycle": 1, "slot": 0, "avg_price": 0.0, "total_qty": 0.0, "total_cost": 0.0}
     if os.path.exists(STATE_FILE):
@@ -94,36 +94,38 @@ class BithumbAPI:
         price = self.get_price(ticker)
         if price == 0: return None
         
-        # 💡 핵심 수정: DOGE 등은 소수점 자릿수에 매우 민감함. 안전하게 소수점 2자리로 제한.
-        units = float(f"{amount_krw / price:.2f}")
+        # 💡 시장가 매수 시 빗썸 1.0의 가장 성공률 높은 파라미터 구성
+        # 엔드포인트를 /trade/market_buy로 유지하되, units를 더 정교하게 다듬음
+        units = round(amount_krw / price, 4)
         
-        # 💡 빗썸 1.0 시장가 매수 표준 파라미터 구성
         params = {
             "endpoint": "/trade/market_buy",
-            "units": units,
+            "units": str(units), # 문자열로 명시적 변환
             "currency": ticker.upper()
         }
         
         res = self.api.post_request("/trade/market_buy", params)
         
-        # 만약 여전히 실패하면, 수량을 더 단순화(정수형)해서 마지막으로 시도
+        # 만약 실패 시, 주문(place) 엔드포인트로 시장가 시도 (일부 계정 전용)
         if res.get('status') == '5500':
-            print("  ⚠️ 소수점 units 실패, 정수형 units로 최종 시도...")
-            params["units"] = int(units)
-            res = self.api.post_request("/trade/market_buy", params)
+            print("  ⚠️ market_buy 실패, 통합 주문(/trade/place)으로 우회 시도...")
+            params["endpoint"] = "/trade/place"
+            params["type"] = "bid"      # 매수
+            params["price"] = int(price) # 시장가 주문이어도 기준가 필요할 수 있음
+            res = self.api.post_request("/trade/place", params)
             
         if res.get('status') == '0000':
-            print(f"  🔴 매수 성공: {params['units']} {ticker}")
+            print(f"  🔴 매수 주문 성공: {ticker}")
             return res
         
-        print(f"  ❌ 매수 실패: {res}")
+        print(f"  ❌ 매수 최종 실패: {res}")
         return None
 
     def sell(self, ticker, qty):
         if not TRADE_MODE: return {"status": "0000"}
         params = {
             "endpoint": "/trade/market_sell",
-            "units": float(f"{qty:.2f}"),
+            "units": str(round(qty, 4)),
             "currency": ticker.upper()
         }
         return self.api.post_request("/trade/market_sell", params)
