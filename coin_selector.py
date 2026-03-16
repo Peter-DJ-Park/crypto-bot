@@ -1,14 +1,13 @@
 """
-[Step 7] Claude AI 기반 종목 선정
-분석 결과를 Claude에게 전달하고 최적 투자 종목 1개를 선정받음
+[Step 7] Gemini AI 기반 종목 선정
+무료 티어 - 하루 1,500회 무료 호출
 """
 import json
 import requests
-from config import ANTHROPIC_API_KEY, TICKERS, TEST_MODE
+from config import GEMINI_API_KEY, TICKERS, TEST_MODE
 
 
 def _build_prompt(analysis: dict, keywords: list) -> str:
-    """Claude 프롬프트 구성"""
     lines = []
     for ticker, data in analysis.items():
         ind = data["indicators"]
@@ -20,7 +19,6 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
             f"신호={data['signal']}"
         )
     summary = "\n".join(lines)
-
     s      = list(analysis.values())[0]["sentiment"]
     kw_str = ", ".join(k for k, _ in keywords[:10])
 
@@ -56,27 +54,30 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Claude API 실제 호출 (claude-sonnet-4-20250514)"""
+    """Gemini API 실제 호출 (무료 tierl)"""
     prompt = _build_prompt(analysis, keywords)
 
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}")
+
     response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key"        : ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type"     : "application/json",
-        },
+        url,
+        headers={"Content-Type": "application/json"},
         json={
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 1024,
-            "messages"  : [{"role": "user", "content": prompt}],
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature"    : 0.3,
+                "maxOutputTokens": 1024,
+            },
         },
         timeout=30,
     )
     response.raise_for_status()
-    text = response.json()["content"][0]["text"].strip()
 
-    # 마크다운 코드블록 제거 (혹시 있으면)
+    text = (response.json()
+            ["candidates"][0]["content"]["parts"][0]["text"].strip())
+
+    # 마크다운 코드블록 제거
     if "```" in text:
         text = text.split("```")[1]
         if text.startswith("json"):
@@ -108,14 +109,13 @@ def select_coin_mock(analysis: dict, keywords: list) -> dict:
 
 
 def select_coin(analysis: dict, keywords: list) -> dict:
-    """설정에 따라 실제 Claude API / 목 선정 결과 반환"""
     try:
-        if TEST_MODE or not ANTHROPIC_API_KEY:
+        if TEST_MODE or not GEMINI_API_KEY:
             result = select_coin_mock(analysis, keywords)
             print("  모드: 🧪 목 선정")
         else:
             result = select_coin_real(analysis, keywords)
-            print("  모드: 🤖 Claude AI")
+            print("  모드: 🤖 Gemini AI (gemini-1.5-flash)")
 
         print(f"  ✅ 선정 종목: {result['selected']}")
         print(f"  이유: {result['reason']}")
@@ -135,7 +135,7 @@ def select_coin(analysis: dict, keywords: list) -> dict:
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("Step 7: Claude AI 종목 선정")
+    print("Step 7: Gemini AI 종목 선정")
     print("=" * 50)
     from mock_data import MOCK_OHLCV, MOCK_NEWS
     from news_collector import extract_keywords
