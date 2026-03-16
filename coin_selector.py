@@ -54,12 +54,12 @@ def _build_prompt(analysis: dict, keywords: list) -> str:
 
 
 def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 실제 호출 (JSON 파싱 에러 방어 적용)"""
+    """Gemini API 실제 호출 (JSON 파싱 방어 & 최신 모델 적용)"""
     prompt = _build_prompt(analysis, keywords)
 
-    # v1beta 및 1.5-flash 모델 적용 (작동이 확인된 주소)
+    # 🚨 이번엔 진짜 맞습니다! 1.5가 아닌 2.5-flash 최신 모델입니다.
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}")
+           f"gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}")
 
     response = requests.post(
         url,
@@ -92,7 +92,6 @@ def select_coin_real(analysis: dict, keywords: list) -> dict:
     try:
         return json.loads(text)
     except Exception as e:
-        # 파싱에 실패하면 AI의 진짜 답변이 무엇이었는지 화면에 강제 출력!
         print(f"\n[🚨 JSON 파싱 에러 발생: {e}]")
         print(f"👀 AI 원본 응답 내용:\n{text}\n")
         raise e
