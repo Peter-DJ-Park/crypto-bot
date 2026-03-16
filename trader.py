@@ -83,13 +83,18 @@ class BithumbAPI:
         return MOCK_PRICES.get(ticker, 1000) * (1 + random.uniform(-0.02, 0.02))
 
     def get_krw_balance(self, ticker: str) -> float:
-        if not TRADE_MODE or not self._api:
-            return BASE_AMOUNT * SPLIT
-        try:
-            return float(self._api.get_balance(ticker)[2])
-        except Exception as e:
-            print(f"  ❌ 잔고 조회 실패: {e}")
-            return 0.0
+    if not TRADE_MODE:
+        return 100_000.0
+    try:
+        balance = self.api.get_balance(ticker)
+        # pybithumb 잔고 반환 형식: (코인잔고, 코인대기, KRW잔고, KRW대기)
+        krw = float(balance[2])
+        print(f"  💰 KRW 잔고: {krw:,.0f}원")
+        return krw
+    except Exception as e:
+        print(f"  ⚠️ 잔고 조회 실패 상세: {e}")
+        # 잔고 조회 실패해도 BASE_AMOUNT로 매수 진행
+        return 100_000.0
 
     def get_coin_balance(self, ticker: str) -> float:
         if not TRADE_MODE or not self._api:
