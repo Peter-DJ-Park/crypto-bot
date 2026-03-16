@@ -1,8 +1,11 @@
 import os
-from dotenv import load_dotenv
 
-# 💡 현재 폴더에 있는 .env 파일을 찾아 환경변수로 불러옵니다.
-load_dotenv()
+# 내 컴퓨터(로컬)에서는 .env를 읽고, 깃허브 액션에서는 에러 없이 넘어갑니다.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # ── 빗썸 API ─────────────────────────────────────────────
 BITHUMB_ACCESS  = os.getenv("BITHUMB_ACCESS", "")
