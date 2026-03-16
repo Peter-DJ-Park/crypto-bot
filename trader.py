@@ -1,5 +1,5 @@
 """
-[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 최종 파라미터 교정)
+[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0 - 최종 파라미터 매핑)
 """
 import json
 import os
@@ -55,7 +55,6 @@ class BithumbV1Client:
     def _signature(self, endpoint, params):
         nonce = str(int(time.time() * 1000))
         query_str = urlencode(params)
-        # 중요: 1.0 방식은 endpoint + \0 + query + \0 + nonce 순서
         data = endpoint + chr(0) + query_str + chr(0) + nonce
         h = hmac.new(self.secret_key.encode('utf-8'), data.encode('utf-8'), hashlib.sha512)
         return {
@@ -85,7 +84,6 @@ class BithumbAPI:
     def get_balances(self, ticker: str):
         if not TRADE_MODE: return 100000.0, 0.0
         try:
-            # 빗썸 1.0은 대문자 티커만 받음
             res = self.api.post_request("/info/balance", currency=ticker.upper())
             if res.get('status') == '0000':
                 return float(res['data']['available_krw']), float(res['data'][f"available_{ticker.lower()}"])
@@ -94,29 +92,43 @@ class BithumbAPI:
 
     def buy(self, ticker, amount_krw):
         if not TRADE_MODE: return {"status": "0000"}
+        
+        # 💡 핵심 수정: 빗썸 1.0 시장가 매수는 units(수량)를 받는 경우와 
+        # 주문 금액을 받는 경우가 섞여 있습니다. 여기서는 'units'를 다시 정교하게 세팅합니다.
         price = self.get_price(ticker)
         if price == 0: return None
         
-        # 💡 핵심 수정: 수량 계산 및 소수점 제한 (DOGE 등 저가 코인은 정수 혹은 소수점 4자리)
+        # 시장가 매수(/trade/market_buy) 파라미터 조정
+        # 일부 1.0 라이브러리에서는 units 대신 krw_amount를 쓰기도 하지만, 
+        # 공식 매뉴얼 기반으로 units의 소수점을 4자리로 고정해 시도합니다.
         units = round(amount_krw / price, 4)
         
-        # 💡 핵심 수정: 1.0 시장가 매수는 units와 currency가 필수
         params = {
-            "units": str(units), 
+            "units": units, 
             "currency": ticker.upper()
         }
+        
         res = self.api.post_request("/trade/market_buy", **params)
         
         if res.get('status') == '0000':
             print(f"  🔴 매수 성공: {units} {ticker}")
             return res
+        
+        # 만약 units로 실패(5500)하면, 빗썸 특유의 파라미터인 'amount'로 재시도
+        if res.get('status') == '5500':
+             print("  ⚠️ units 실패, amount로 재시도 중...")
+             res = self.api.post_request("/trade/market_buy", units=int(amount_krw), currency=ticker.upper())
+        
+        if res.get('status') == '0000':
+            return res
+            
         print(f"  ❌ 매수 실패: {res}")
         return None
 
     def sell(self, ticker, qty):
         if not TRADE_MODE: return {"status": "0000"}
         params = {
-            "units": str(round(qty, 4)),
+            "units": round(qty, 4),
             "currency": ticker.upper()
         }
         return self.api.post_request("/trade/market_sell", **params)
