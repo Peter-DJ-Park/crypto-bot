@@ -14,6 +14,14 @@ from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
                     SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
                     BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
 
+# 코인별 소수점 자리수 (빗썸 규정)
+COIN_DECIMAL = {
+    "BTC" : 8,
+    "ETH" : 8,
+    "XRP" : 4,
+    "SOL" : 4,
+    "DOGE": 4,
+}
 
 def load_state() -> dict:
     default = {
@@ -149,18 +157,18 @@ class BithumbAPI:
             print("  ❌ 가격 조회 실패로 매수 중단")
             return None
 
-        # 수량 계산: 소수점 8자리까지 허용
-        units = amount_krw / price
-        units = round(units, 8)
+        # 코인별 소수점 자리수 적용
+        decimal = COIN_DECIMAL.get(ticker.upper(), 4)
+        units   = round(amount_krw / price, decimal)
 
         if units <= 0:
             print(f"  ❌ 수량 계산 오류: {units}")
             return None
 
         print(f"  🔍 매수 시도: {ticker} {amount_krw:,.0f}원 / "
-              f"{price:,.0f}원 = {units}개")
+              f"{price:,.0f}원 = {units}개 (소수점 {decimal}자리)")
 
-        # 방법 1: market_buy (수량 기반)
+        # market_buy 시도
         params = {
             "endpoint": "/trade/market_buy",
             "units"   : str(units),
@@ -174,7 +182,7 @@ class BithumbAPI:
                   f"{amount_krw:,.0f}원 ({units}개)")
             return res
 
-        # 방법 2: place 지정가 주문 (시장가 근사)
+        # place 지정가 시도
         print(f"  ⚠️ market_buy 실패, place 주문 시도...")
         params2 = {
             "endpoint": "/trade/place",
@@ -197,9 +205,10 @@ class BithumbAPI:
         if not TRADE_MODE:
             print(f"  [시뮬레이션] {ticker} {qty}개 매도")
             return {"status": "0000"}
+        decimal = COIN_DECIMAL.get(ticker.upper(), 4)
         params = {
             "endpoint": "/trade/market_sell",
-            "units"   : str(round(qty, 8)),
+            "units"   : str(round(qty, decimal)),
             "currency": ticker.upper(),
         }
         res = self.client.post_request("/trade/market_sell", params)
