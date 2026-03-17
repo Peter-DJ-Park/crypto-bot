@@ -2,7 +2,9 @@ name: 암호화폐 분석봇 (무한매수법)
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 매일 KST 오전 9시
+    - cron: '0 0,12 * * *'
+# UTC 00:00 = KST 09:00
+# UTC 12:00 = KST 21:00
   workflow_dispatch:
 
 jobs:
