@@ -133,7 +133,8 @@ class BithumbAPI:
         if not TRADE_MODE:
             return 100_000.0, 0.0
         try:
-            params = {"endpoint": "/info/balance", "currency": ticker.upper()}
+            params = {"endpoint": "/info/balance",
+                      "currency": ticker.upper()}
             res = self.client.post_request("/info/balance", params)
             if res.get("status") == "0000":
                 krw  = float(res["data"]["available_krw"])
@@ -157,7 +158,6 @@ class BithumbAPI:
             print("  ❌ 가격 조회 실패로 매수 중단")
             return None
 
-        # 코인별 소수점 자리수 적용
         decimal = COIN_DECIMAL.get(ticker.upper(), 4)
         units   = round(amount_krw / price, decimal)
 
@@ -166,33 +166,37 @@ class BithumbAPI:
             return None
 
         print(f"  🔍 매수 시도: {ticker} {amount_krw:,.0f}원 / "
-              f"{price:,.0f}원 = {units}개 (소수점 {decimal}자리)")
+              f"{price:,.0f}원 = {units}개")
 
-        # market_buy 시도
+        # 방법 1: market_buy (order_currency 키 사용)
         params = {
-            "endpoint": "/trade/market_buy",
-            "units"   : str(units),
-            "currency": ticker.upper(),
+            "endpoint"      : "/trade/market_buy",
+            "units"         : str(units),
+            "order_currency": ticker.upper(),
+            "payment_currency": "KRW",
         }
         res = self.client.post_request("/trade/market_buy", params)
-        print(f"  market_buy 응답: {res.get('status')} {res.get('message','')}")
+        print(f"  market_buy 응답: {res.get('status')} "
+              f"{res.get('message','')}")
 
         if res.get("status") == "0000":
             print(f"  🔴 실거래 매수 완료: {ticker} "
                   f"{amount_krw:,.0f}원 ({units}개)")
             return res
 
-        # place 지정가 시도
+        # 방법 2: place 지정가 (order_currency 키 사용)
         print(f"  ⚠️ market_buy 실패, place 주문 시도...")
         params2 = {
-            "endpoint": "/trade/place",
-            "type"    : "bid",
-            "price"   : str(int(price)),
-            "units"   : str(units),
-            "currency": ticker.upper(),
+            "endpoint"        : "/trade/place",
+            "order_currency"  : ticker.upper(),
+            "payment_currency": "KRW",
+            "units"           : str(units),
+            "price"           : str(int(price)),
+            "type"            : "bid",
         }
         res2 = self.client.post_request("/trade/place", params2)
-        print(f"  place 응답: {res2.get('status')} {res2.get('message','')}")
+        print(f"  place 응답: {res2.get('status')} "
+              f"{res2.get('message','')}")
 
         if res2.get("status") == "0000":
             print(f"  🔴 place 매수 완료: {ticker} {amount_krw:,.0f}원")
@@ -207,9 +211,10 @@ class BithumbAPI:
             return {"status": "0000"}
         decimal = COIN_DECIMAL.get(ticker.upper(), 4)
         params = {
-            "endpoint": "/trade/market_sell",
-            "units"   : str(round(qty, decimal)),
-            "currency": ticker.upper(),
+            "endpoint"        : "/trade/market_sell",
+            "order_currency"  : ticker.upper(),
+            "payment_currency": "KRW",
+            "units"           : str(round(qty, decimal)),
         }
         res = self.client.post_request("/trade/market_sell", params)
         if res.get("status") == "0000":
