@@ -1,150 +1,291 @@
 """
-[Step 7] Gemini AI 기반 종목 선정
-429 오류 시 자동 재시도 + 백오프
+[Step 8] 무한매수법 자동거래 실행 (빗썸 API 1.0)
 """
 import json
+import os
 import time
+import hmac
+import hashlib
+import base64
 import requests
-from config import GEMINI_API_KEY, TEST_MODE
+from urllib.parse import urlencode
 
+from config import (BITHUMB_ACCESS, BITHUMB_SECRET, STATE_FILE,
+                    SPLIT, BASE_AMOUNT, TARGET_PROFIT, QUARTER_SELL,
+                    BUY_RATIO_TABLE, TEST_MODE, TRADE_MODE)
 
-def _build_prompt(analysis: dict, keywords: list) -> str:
-    lines = []
-    for ticker, data in analysis.items():
-        ind = data["indicators"]
-        lines.append(
-            f"- {ticker}: 현재가={ind['current_price']:,.0f}원, "
-            f"등락={ind['change_pct']:+.2f}%, RSI={ind['rsi']}, "
-            f"BB위치={ind['bb_pct']}%, MACD히스토={ind['macd_hist']:.4f}, "
-            f"거래량비={ind['vol_ratio']}x, 캔들={data['pattern']}, "
-            f"신호={data['signal']}"
-        )
-    summary = "\n".join(lines)
-    s      = list(analysis.values())[0]["sentiment"]
-    kw_str = ", ".join(k for k, _ in keywords[:10])
+# 코인별 소수점 자리수 (빗썸 규정)
+COIN_DECIMAL = {
+    "BTC" : 8,
+    "ETH" : 8,
+    "XRP" : 4,
+    "SOL" : 4,
+    "DOGE": 4,
+}
 
-    return f"""당신은 암호화폐 투자 전문가입니다.
-아래 기술적 분석 데이터와 뉴스 감성 분석을 바탕으로
-오늘 무한매수법(10만원 / 20분할 / +10% 익절)을 적용할
-최적의 코인 1개를 선정하고 투자 전략을 제시해주세요.
-
-## 분석 대상 코인
-{summary}
-
-## 뉴스 감성
-- 종합: {s['verdict']} ({s['score']}점)
-- 긍정 키워드: {', '.join(s['positive']) or '없음'}
-- 부정 키워드: {', '.join(s['negative']) or '없음'}
-- 주요 키워드: {kw_str}
-
-## 무한매수법 최적 종목 선정 기준
-1. RSI 50 이하 (매수 여력 확보)
-2. 뉴스 감성 중립 이상
-3. 거래량 평균 이상 (vol_ratio > 1.0)
-4. 볼린저밴드 하단 근처 (bb_pct 50 이하)
-5. 과도한 하락세보다는 횡보/반등 국면 선호
-
-반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 JSON만:
-{{
-  "selected": "XRP",
-  "reason": "선정 이유 2~3문장으로 구체적으로",
-  "risk_level": "낮음/중간/높음",
-  "strategy": "오늘 매수 전략 한 줄",
-  "caution": "주의사항 한 줄"
-}}"""
-
-
-def select_coin_real(analysis: dict, keywords: list) -> dict:
-    """Gemini API 호출 (429 시 최대 3회 재시도)"""
-    prompt = _build_prompt(analysis, keywords)
-
-    # 모델 우선순위: flash-lite → flash → 1.5-pro
-    models = [
-        "gemini-2.0-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-    ]
-
-    for model in models:
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{model}:generateContent?key={GEMINI_API_KEY}")
-        for attempt in range(3):
-            try:
-                response = requests.post(
-                    url,
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "temperature"    : 0.3,
-                            "maxOutputTokens": 512,
-                        },
-                    },
-                    timeout=30,
-                )
-                if response.status_code == 429:
-                    wait = (attempt + 1) * 10
-                    print(f"  ⚠️ {model} 429 오류, {wait}초 후 재시도...")
-                    time.sleep(wait)
-                    continue
-                if response.status_code == 404:
-                    print(f"  ⚠️ {model} 모델 없음, 다음 모델 시도...")
-                    break
-                response.raise_for_status()
-                text = (response.json()
-                        ["candidates"][0]["content"]["parts"][0]["text"]
-                        .strip())
-                if "```" in text:
-                    text = text.split("```")[1]
-                    if text.startswith("json"):
-                        text = text[4:]
-                    text = text.strip().rstrip("```").strip()
-                result = json.loads(text)
-                print(f"  모드: 🤖 Gemini AI ({model})")
-                return result
-            except Exception as e:
-                print(f"  ⚠️ {model} 시도 {attempt+1} 실패: {e}")
-                time.sleep(5)
-
-    raise Exception("모든 Gemini 모델 호출 실패")
-
-
-def select_coin_mock(analysis: dict, keywords: list) -> dict:
-    signal_priority = {
-        "강력 매수 ⚡": 5, "매수 🟢": 4,
-        "중립 ➡️"    : 3, "관망 🟡": 2, "매도/회피 🔴": 1,
+def load_state() -> dict:
+    default = {
+        "ticker"    : "",
+        "cycle"     : 1,
+        "slot"      : 0,
+        "avg_price" : 0.0,
+        "total_qty" : 0.0,
+        "total_cost": 0.0,
     }
-    best   = max(analysis.items(),
-                 key=lambda x: signal_priority.get(x[1]["signal"], 0))
-    ticker = best[0]
-    ind    = best[1]["indicators"]
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            saved = json.load(f)
+            default.update(saved)
+    return default
+
+
+def save_state(state: dict):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
+
+def get_buy_ratio(current_price: float, avg_price: float) -> float:
+    if avg_price == 0:
+        return 1.0
+    drop_rate = (current_price - avg_price) / avg_price
+    for threshold, ratio in BUY_RATIO_TABLE:
+        if drop_rate >= threshold:
+            return ratio
+    return 2.5
+
+
+def update_avg(state: dict, buy_amount: float, price: float) -> dict:
+    qty = buy_amount / price
+    state["total_cost"] += buy_amount
+    state["total_qty"]  += qty
+    state["avg_price"]   = state["total_cost"] / state["total_qty"]
+    state["slot"]       += 1
+    return state
+
+
+def reset_state(state: dict, ticker: str) -> dict:
     return {
-        "selected"  : ticker,
-        "reason"    : (f"RSI {ind['rsi']}로 매수 여력이 있으며 "
-                       f"BB위치 {ind['bb_pct']}%로 진입에 유리한 구간."),
-        "risk_level": "중간",
-        "strategy"  : "슬롯 1/20부터 분할 매수 시작, 평단 +10% 익절 목표",
-        "caution"   : "시장 전반 급락 시 쿼터손절 기준 철저히 준수",
+        "ticker"    : ticker,
+        "cycle"     : state.get("cycle", 0) + 1,
+        "slot"      : 0,
+        "avg_price" : 0.0,
+        "total_qty" : 0.0,
+        "total_cost": 0.0,
     }
 
 
-def select_coin(analysis: dict, keywords: list) -> dict:
-    try:
-        if TEST_MODE or not GEMINI_API_KEY:
-            result = select_coin_mock(analysis, keywords)
-            print("  모드: 🧪 목 선정")
-        else:
-            result = select_coin_real(analysis, keywords)
-        print(f"  ✅ 선정 종목: {result['selected']}")
-        print(f"  이유: {result['reason']}")
-        print(f"  리스크: {result['risk_level']}")
-        return result
-    except Exception as e:
-        print(f"  ❌ 종목 선정 실패: {e}, 기본값 XRP 사용")
+class BithumbV1Client:
+    def __init__(self, access_key, secret_key):
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.base_url   = "https://api.bithumb.com"
+
+    def _signature(self, endpoint, params):
+        nonce     = str(int(time.time() * 1000))
+        query_str = urlencode(params)
+        data      = endpoint + chr(0) + query_str + chr(0) + nonce
+        h = hmac.new(
+            self.secret_key.encode("utf-8"),
+            data.encode("utf-8"),
+            hashlib.sha512
+        )
         return {
-            "selected"  : "XRP",
-            "reason"    : "선정 오류로 기본값 적용",
-            "risk_level": "중간",
-            "strategy"  : "기본 무한매수법 적용",
-            "caution"   : "수동으로 종목 재확인 필요",
+            "Api-Key"     : self.access_key,
+            "Api-Sign"    : base64.b64encode(
+                                h.hexdigest().encode("utf-8")
+                            ).decode("utf-8"),
+            "Api-Nonce"   : nonce,
+            "Content-Type": "application/x-www-form-urlencoded",
         }
+
+    def post_request(self, endpoint, params):
+        headers = self._signature(endpoint, params)
+        res = requests.post(
+            self.base_url + endpoint,
+            data=urlencode(params),
+            headers=headers,
+            timeout=10,
+        )
+        return res.json()
+
+
+class BithumbAPI:
+    def __init__(self):
+        if TRADE_MODE:
+            self.client = BithumbV1Client(BITHUMB_ACCESS, BITHUMB_SECRET)
+            print("  ✅ 빗썸 실거래 연결 성공")
+        else:
+            self.client = None
+            print("  🧪 시뮬레이션 모드")
+
+    def get_price(self, ticker: str) -> float:
+        try:
+            res = requests.get(
+                f"https://api.bithumb.com/public/ticker/{ticker}_KRW",
+                timeout=5
+            ).json()
+            return float(res["data"]["closing_price"])
+        except Exception as e:
+            print(f"  ❌ 가격 조회 실패: {e}")
+            return 0.0
+
+    def get_balances(self, ticker: str):
+        if not TRADE_MODE:
+            return 100_000.0, 0.0
+        try:
+            params = {"endpoint": "/info/balance", "currency": ticker.upper()}
+            res = self.client.post_request("/info/balance", params)
+            if res.get("status") == "0000":
+                krw  = float(res["data"]["available_krw"])
+                coin = float(res["data"].get(
+                    f"available_{ticker.lower()}", 0))
+                print(f"  💰 KRW 잔고: {krw:,.0f}원")
+                return krw, coin
+            else:
+                print(f"  ⚠️ 잔고 조회 실패: {res}")
+        except Exception as e:
+            print(f"  ⚠️ 잔고 조회 예외: {e}")
+        return 0.0, 0.0
+
+    def buy(self, ticker: str, amount_krw: float):
+        if not TRADE_MODE:
+            print(f"  [시뮬레이션] {ticker} {amount_krw:,.0f}원 매수")
+            return {"status": "0000"}
+
+        price = self.get_price(ticker)
+        if price <= 0:
+            print("  ❌ 가격 조회 실패로 매수 중단")
+            return None
+
+        # 코인별 소수점 자리수 적용
+        decimal = COIN_DECIMAL.get(ticker.upper(), 4)
+        units   = round(amount_krw / price, decimal)
+
+        if units <= 0:
+            print(f"  ❌ 수량 계산 오류: {units}")
+            return None
+
+        print(f"  🔍 매수 시도: {ticker} {amount_krw:,.0f}원 / "
+              f"{price:,.0f}원 = {units}개 (소수점 {decimal}자리)")
+
+        # market_buy 시도
+        params = {
+            "endpoint": "/trade/market_buy",
+            "units"   : str(units),
+            "currency": ticker.upper(),
+        }
+        res = self.client.post_request("/trade/market_buy", params)
+        print(f"  market_buy 응답: {res.get('status')} {res.get('message','')}")
+
+        if res.get("status") == "0000":
+            print(f"  🔴 실거래 매수 완료: {ticker} "
+                  f"{amount_krw:,.0f}원 ({units}개)")
+            return res
+
+        # place 지정가 시도
+        print(f"  ⚠️ market_buy 실패, place 주문 시도...")
+        params2 = {
+            "endpoint": "/trade/place",
+            "type"    : "bid",
+            "price"   : str(int(price)),
+            "units"   : str(units),
+            "currency": ticker.upper(),
+        }
+        res2 = self.client.post_request("/trade/place", params2)
+        print(f"  place 응답: {res2.get('status')} {res2.get('message','')}")
+
+        if res2.get("status") == "0000":
+            print(f"  🔴 place 매수 완료: {ticker} {amount_krw:,.0f}원")
+            return res2
+
+        print(f"  ❌ 매수 최종 실패: {res2}")
+        return None
+
+    def sell(self, ticker: str, qty: float):
+        if not TRADE_MODE:
+            print(f"  [시뮬레이션] {ticker} {qty}개 매도")
+            return {"status": "0000"}
+        decimal = COIN_DECIMAL.get(ticker.upper(), 4)
+        params = {
+            "endpoint": "/trade/market_sell",
+            "units"   : str(round(qty, decimal)),
+            "currency": ticker.upper(),
+        }
+        res = self.client.post_request("/trade/market_sell", params)
+        if res.get("status") == "0000":
+            print(f"  🔴 실거래 매도 완료: {ticker} {qty}개")
+        else:
+            print(f"  ❌ 매도 실패: {res}")
+        return res
+
+
+def run_trade(ticker: str) -> dict:
+    api   = BithumbAPI()
+    state = load_state()
+
+    if state["ticker"] and state["ticker"] != ticker:
+        print(f"  ⚠️ 종목 변경: {state['ticker']} → {ticker}")
+        state = reset_state(state, ticker)
+    state["ticker"] = ticker
+
+    current           = api.get_price(ticker)
+    krw_bal, coin_bal = api.get_balances(ticker)
+    avg               = state["avg_price"]
+    mode              = "🔴 실거래" if TRADE_MODE else "🧪 시뮬레이션"
+
+    print(f"  종목: {ticker}  |  현재가: {current:,.0f}원  |  "
+          f"평단: {avg:,.0f}원  |  슬롯: {state['slot']}/{SPLIT}")
+    print(f"  거래모드: {mode}")
+
+    # 1. 익절 체크
+    if avg > 0 and current >= avg * (1 + TARGET_PROFIT):
+        if coin_bal > 0:
+            api.sell(ticker, coin_bal)
+        profit_pct = (current - avg) / avg * 100
+        profit_krw = (current - avg) * state["total_qty"]
+        result = {
+            "action"    : "sell",
+            "ticker"    : ticker,
+            "cycle"     : state["cycle"],
+            "profit_pct": round(profit_pct, 2),
+            "profit_krw": round(profit_krw, 0),
+        }
+        save_state(reset_state(state, ticker))
+        print(f"  🎉 익절! +{profit_pct:.1f}% / +{profit_krw:,.0f}원")
+        return result
+
+    # 2. 쿼터손절 체크
+    if state["slot"] >= SPLIT:
+        sell_qty = coin_bal * QUARTER_SELL
+        if sell_qty > 0:
+            api.sell(ticker, sell_qty)
+        state["total_qty"]  *= (1 - QUARTER_SELL)
+        state["total_cost"] *= (1 - QUARTER_SELL)
+        state["slot"]        = int(SPLIT * (1 - QUARTER_SELL))
+        save_state(state)
+        return {"action": "quarter_sell", "ticker": ticker,
+                "total_slots": SPLIT}
+
+    # 3. 분할 매수
+    ratio      = get_buy_ratio(current, avg)
+    buy_amount = min(BASE_AMOUNT * ratio, krw_bal)
+    buy_amount = max(buy_amount, 5000)
+
+    order = api.buy(ticker, buy_amount)
+    if order and order.get("status") == "0000":
+        state = update_avg(state, buy_amount, current)
+        save_state(state)
+        print(f"  ✅ 매수완료: {buy_amount:,.0f}원 (x{ratio}배) → "
+              f"새 평단: {state['avg_price']:,.0f}원")
+        return {
+            "action"     : "buy",
+            "ticker"     : ticker,
+            "amount"     : buy_amount,
+            "current"    : current,
+            "avg_price"  : state["avg_price"],
+            "target"     : state["avg_price"] * (1 + TARGET_PROFIT),
+            "slot"       : state["slot"],
+            "total_slots": SPLIT,
+            "ratio"      : ratio,
+        }
+    return {"action": "fail", "ticker": ticker}
